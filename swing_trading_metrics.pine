@@ -1,0 +1,569 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+//
+// Combines ATR extension from MA + various metrics
+// Credits to @jfsrev
+
+
+//@version=6
+indicator(title='Swing Metrics', overlay=true, max_bars_back=253)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ TABLE SETTINGS ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+grpTable = "1. Table Settings"
+showTable       = input.bool(true, "Show Table", group=grpTable)
+posTable        = input.string('Top Right', 'Position', options=['Top Left', 'Top Right', 'Bottom Left', 'Bottom Right'], group=grpTable)
+tbl_size        = input.string('Small', 'Size', options=['Tiny', 'Small', 'Normal', 'Large'], group=grpTable)
+txt_col         = input.color(color.white, 'Text Color', group=grpTable)
+val_col         = input.color(color.orange, 'Value Color', group=grpTable)
+bg_col          = input.color(color.new(color.black, 85), 'Background', group=grpTable)
+show_empty_top  = input.bool(true, 'Empty Row Above', group=grpTable)
+show_empty_bot  = input.bool(false, 'Empty Row Below', group=grpTable)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ PARAMETERS ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+grpParams = "2. Parameters"
+maType          = input.string("SMA", "MA Type", options=["SMA", "EMA"], group=grpParams)
+maLength        = input.int(50, "MA Length", minval=1, group=grpParams)
+atr_len         = input.int(14, 'ATR Length', group=grpParams)
+adrp_len        = input.int(20, 'ADR% Length', group=grpParams)
+vol_len         = input.int(50, 'Volume MA Length', group=grpParams)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ ATR EXTENSION SETTINGS ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+grpExt = "3. Chart Visuals"
+showExtDots     = input.bool(true, "Show Extension Dots", group=grpExt)
+dotSize         = input.string("Auto", "Dot Size", options=["Auto", "Tiny", "Small", "Normal"], group=grpExt)
+warnThreshold   = input.float(4.0, "Warn Threshold", minval=0.1, step=0.5, group=grpExt)
+dangerThreshold = input.float(7.0, "Danger Threshold", minval=0.1, step=0.5, group=grpExt)
+profitThreshold = input.float(10.0, "Profit Threshold", minval=0.1, step=0.5, group=grpExt)
+col_normal      = input.color(color.gray, "Normal Color", group=grpExt)
+col_warning     = input.color(color.yellow, "Warning Color", group=grpExt)
+col_danger      = input.color(color.orange, "Danger Color", group=grpExt)
+col_profit      = input.color(color.red, "Profit Color", group=grpExt)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ FIELD VISIBILITY & ORDER ░░░
+// Order: lower number = higher in table. Set to 0 to hide.
+// ══════════════════════════════════════════════════════════════════════════════
+grpOrder = "4. Field Order (0=hide, 1=top)"
+// Trend filter
+ord_stage2      = input.int(1, "Stage 2 Check", minval=0, maxval=25, group=grpOrder)
+// ATR metrics
+ord_atrMult     = input.int(2, "ATR Multiple", minval=0, maxval=25, group=grpOrder)
+ord_atrPct      = input.int(3, "ATR %", minval=0, maxval=25, group=grpOrder)
+ord_atr         = input.int(4, "ATR $", minval=0, maxval=25, group=grpOrder)
+ord_adrp        = input.int(0, "ADR %", minval=0, maxval=25, group=grpOrder)
+// LoD metrics
+ord_lodPrice    = input.int(5, "LoD Price", minval=0, maxval=25, group=grpOrder)
+ord_lodDist     = input.int(6, "LoD Dist", minval=0, maxval=25, group=grpOrder)
+// Volume metrics
+ord_relVol      = input.int(7, "Rel Volume", minval=0, maxval=25, group=grpOrder)
+ord_avgDolVol   = input.int(0, "Avg $ Vol", minval=0, maxval=25, group=grpOrder)
+ord_avgVol      = input.int(0, "Avg Volume", minval=0, maxval=25, group=grpOrder)
+ord_udRatio     = input.int(0, "U/D Ratio", minval=0, maxval=25, group=grpOrder)
+// Base depth
+ord_distHigh    = input.int(8, "Off 52W High", minval=0, maxval=25, group=grpOrder)
+ord_distLow     = input.int(0, "Off 52W Low", minval=0, maxval=25, group=grpOrder)
+// Size & Float (hidden - not critical for <$500k accounts)
+ord_mktCap      = input.int(0, "Market Cap", minval=0, maxval=25, group=grpOrder)
+ord_floatPct    = input.int(0, "Float %", minval=0, maxval=25, group=grpOrder)
+// Classification
+ord_rsRating    = input.int(0, "RS Rating", minval=0, maxval=25, group=grpOrder)
+ord_sectorETF   = input.int(9, "Sector (ETF)", minval=0, maxval=25, group=grpOrder)
+showSectorName  = input.bool(true, "Show Sector Name (not just ETF)", group=grpOrder)
+ord_industry    = input.int(10, "Industry", minval=0, maxval=25, group=grpOrder)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ CALCULATIONS ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+tf = timeframe.period
+s  = syminfo.tickerid
+isDaily = timeframe.isdaily
+isETF = syminfo.type == "fund"
+
+// Moving Average
+ma = maType == "SMA" ? ta.sma(close, maLength) : ta.ema(close, maLength)
+
+// Stage 2 Check: Price > 50-MA > 200-MA, with 50-MA rising
+ma200 = ta.sma(close, 200)
+ma50ForStage = ta.sma(close, 50)  // Always use 50 SMA for Stage 2 check regardless of maLength setting
+ma50Rising = ma50ForStage > ma50ForStage[20]  // 50-MA higher than 20 bars ago
+isStage2 = close > ma50ForStage and ma50ForStage > ma200 and ma50Rising
+
+// ATR calculations
+atrValue = ta.atr(atr_len)
+atrPct = (atrValue / close) * 100
+
+// ADR%
+adrPct = 100 * (ta.sma(high / low, adrp_len) - 1)
+
+// % Gain/Loss from MA & ATR Multiple
+pctFromMA = ((close - ma) / ma) * 100
+atrMultiple = pctFromMA / atrPct
+
+// LoD calculations
+lodDist = 100 * (close - low) / atrValue
+lodPrice = low
+
+// Volume calculations
+vol = request.security(s, tf, volume)
+volMA = ta.sma(vol, vol_len)
+relVol = vol / volMA * 100
+
+// Average Volume formatting
+avgDaVol = request.security(s, tf, volMA)
+avgDaVolCalc = avgDaVol
+uV = avgDaVol >= 1000000000 ? "B" : avgDaVol >= 1000000 ? "M" : avgDaVol >= 1000 ? "K" : ""
+avgDaVolDisp = avgDaVol >= 1000000000 ? avgDaVol / 1000000000 : avgDaVol >= 1000000 ? avgDaVol / 1000000 : avgDaVol >= 1000 ? avgDaVol / 1000 : avgDaVol
+
+// Average $ Volume
+closeDa = request.security(s, tf, close)
+advDolDa = closeDa * avgDaVolCalc
+uVDol = advDolDa >= 1000000000 ? "B" : advDolDa >= 1000000 ? "M" : advDolDa >= 1000 ? "K" : ""
+advDolDaDisp = advDolDa >= 1000000000 ? advDolDa / 1000000000 : advDolDa >= 1000000 ? advDolDa / 1000000 : advDolDa >= 1000 ? advDolDa / 1000 : advDolDa
+
+// Market Cap
+MCap = request.financial(s, 'MARKET_CAP_BASIC', 'D', ignore_invalid_symbol=true)
+if na(MCap)
+    MCap := syminfo.shares_outstanding_total * close
+MCapCalc = MCap
+uM = MCap >= 1000000000 ? "B" : MCap >= 1000000 ? "M" : MCap >= 1000 ? "K" : ""
+MCapDisp = MCap >= 1000000000 ? MCap / 1000000000 : MCap >= 1000000 ? MCap / 1000000 : MCap >= 1000 ? MCap / 1000 : MCap
+
+// Float
+FSO = syminfo.shares_outstanding_float
+FFMCap = FSO * closeDa
+floatPer = FFMCap / MCapCalc * 100
+
+// U/D Volume Ratio
+upVol = close > close[1] ? volume : 0
+dnVol = close < close[1] ? volume : 0
+sumUp = math.sum(upVol, 50)
+sumDn = math.sum(dnVol, 50)
+udRatio = sumUp / sumDn
+
+// 52 Week High/Low
+fiftyTwoHigh = request.security(syminfo.tickerid, 'W', ta.highest(high, 52))
+fiftyTwoLow = request.security(syminfo.tickerid, 'W', ta.lowest(low, 52))
+distFromHigh = 100 * (closeDa / fiftyTwoHigh - 1)
+distFromLow = 100 * (closeDa / fiftyTwoLow - 1)
+
+// Sector & Industry with ETF mapping
+string sectorRaw = syminfo.sector
+string sectorName = na(sectorRaw) ? "N/A" : sectorRaw
+string industryRaw = na(syminfo.industry) ? "N/A" : syminfo.industry
+
+// Industry abbreviation
+getIndustryAbbrev(ind) =>
+    result = ind
+    // Software
+    if ind == "Software - Application"
+        result := "Software - Apps"
+    else if ind == "Software - Infrastructure"
+        result := "Software - Infra"
+    // Tech
+    else if ind == "Information Technology Services"
+        result := "IT Services"
+    else if ind == "Semiconductor Equipment & Materials"
+        result := "Semis Equipment"
+    else if ind == "Consumer Electronics"
+        result := "Consumer Electronics"
+    else if ind == "Electronic Components"
+        result := "Electronics"
+    else if ind == "Electronic Equipment & Instruments"
+        result := "Electronic Equipment"
+    else if ind == "Computer Hardware"
+        result := "Computer Hardware"
+    else if ind == "Data Processing Services"
+        result := "Data Processing"
+    else if ind == "Communication Equipment"
+        result := "Comm Equipment"
+    else if ind == "Telecommunications Equipment"
+        result := "Telecom Equipment"
+    else if ind == "Specialty Telecommunications"
+        result := "Specialty Telecom"
+    else if ind == "Computer Processing Hardware"
+        result := "CPU Hardware"
+    else if ind == "Scientific & Technical Instruments"
+        result := "Scientific Instruments"
+    else if ind == "Solar"
+        result := "Solar"
+    // Healthcare
+    else if ind == "Drug Manufacturers - General"
+        result := "Drugs - General"
+    else if ind == "Drug Manufacturers - Specialty & Generic"
+        result := "Drugs - Specialty"
+    else if ind == "Medical Instruments & Supplies"
+        result := "Medical Instruments"
+    else if ind == "Medical Care Facilities"
+        result := "Medical Facilities"
+    else if ind == "Health Information Services"
+        result := "Health Info"
+    else if ind == "Medical Devices"
+        result := "Medical Devices"
+    else if ind == "Diagnostics & Research"
+        result := "Diagnostics"
+    // Finance
+    else if ind == "Insurance - Property & Casualty"
+        result := "Insurance - P&C"
+    else if ind == "Insurance - Diversified"
+        result := "Insurance - Div"
+    else if ind == "Insurance - Life"
+        result := "Insurance - Life"
+    else if ind == "Banks - Regional"
+        result := "Banks - Regional"
+    else if ind == "Banks - Diversified"
+        result := "Banks - Diversified"
+    else if ind == "Asset Management"
+        result := "Asset Mgmt"
+    else if ind == "Financial Data & Stock Exchanges"
+        result := "Financial Data"
+    // Retail/Consumer
+    else if ind == "Internet Retail"
+        result := "E-Commerce"
+    else if ind == "Specialty Retail"
+        result := "Specialty Retail"
+    else if ind == "Home Improvement Retail"
+        result := "Home Improvement"
+    else if ind == "Apparel Retail"
+        result := "Apparel Retail"
+    else if ind == "Residential Construction"
+        result := "Home Builders"
+    else if ind == "Auto Manufacturers"
+        result := "Auto Manufacturers"
+    else if ind == "Auto Parts"
+        result := "Auto Parts"
+    // Industrials
+    else if ind == "Building Products & Equipment"
+        result := "Building Products"
+    else if ind == "Electrical Equipment & Parts"
+        result := "Electrical Equipment"
+    else if ind == "Industrial Distribution"
+        result := "Industrial Dist"
+    else if ind == "Engineering & Construction"
+        result := "Engineering"
+    else if ind == "Aerospace & Defense"
+        result := "Aerospace"
+    else if ind == "Farm & Heavy Construction Machinery"
+        result := "Heavy Machinery"
+    else if ind == "Specialty Industrial Machinery"
+        result := "Industrial Machinery"
+    // Energy
+    else if ind == "Oil & Gas E&P"
+        result := "Oil & Gas E&P"
+    else if ind == "Oil & Gas Integrated"
+        result := "Oil & Gas"
+    else if ind == "Oil & Gas Equipment & Services"
+        result := "Oil & Gas Services"
+    // Utilities
+    else if ind == "Utilities - Regulated Electric"
+        result := "Utilities - Electric"
+    else if ind == "Utilities - Diversified"
+        result := "Utilities - Div"
+    else if ind == "Utilities - Renewable"
+        result := "Utilities - Renewable"
+    // REITs
+    else if ind == "REIT - Industrial"
+        result := "REIT - Industrial"
+    else if ind == "REIT - Residential"
+        result := "REIT - Residential"
+    else if ind == "REIT - Retail"
+        result := "REIT - Retail"
+    else if ind == "REIT - Office"
+        result := "REIT - Office"
+    else if ind == "REIT - Diversified"
+        result := "REIT - Diversified"
+    else if ind == "REIT - Healthcare Facilities"
+        result := "REIT - Healthcare"
+    // Communications
+    else if ind == "Telecom Services"
+        result := "Telecom"
+    else if ind == "Entertainment"
+        result := "Entertainment"
+    else if ind == "Internet Content & Information"
+        result := "Internet Content"
+    else if ind == "Electronic Gaming & Multimedia"
+        result := "Gaming"
+    // Materials
+    else if ind == "Specialty Chemicals"
+        result := "Specialty Chemicals"
+    else if ind == "Agricultural Inputs"
+        result := "Agriculture"
+    result
+
+string industryName = getIndustryAbbrev(industryRaw)
+
+// Sector category and ETF Mapping
+getSectorInfo(sec) =>
+    category = "Other"
+    etf = "SPY"
+    if sec == "Technology Services" or sec == "Electronic Technology"
+        category := "Technology"
+        etf := "XLK"
+    else if sec == "Finance"
+        category := "Financials"
+        etf := "XLF"
+    else if sec == "Health Technology" or sec == "Health Services"
+        category := "Healthcare"
+        etf := "XLV"
+    else if sec == "Retail Trade" or sec == "Consumer Services" or sec == "Consumer Durables"
+        category := "Discretionary"
+        etf := "XLY"
+    else if sec == "Consumer Non-Durables"
+        category := "Staples"
+        etf := "XLP"
+    else if sec == "Energy Minerals"
+        category := "Energy"
+        etf := "XLE"
+    else if sec == "Producer Manufacturing" or sec == "Commercial Services" or sec == "Industrial Services" or sec == "Transportation" or sec == "Distribution Services"
+        category := "Industrials"
+        etf := "XLI"
+    else if sec == "Utilities"
+        category := "Utilities"
+        etf := "XLU"
+    else if sec == "Non-Energy Minerals" or sec == "Process Industries"
+        category := "Materials"
+        etf := "XLB"
+    else if sec == "Communications"
+        category := "Communications"
+        etf := "XLC"
+    else if sec == "Miscellaneous" or sec == "N/A"
+        category := "Other"
+        etf := "SPY"
+    [category, etf]
+
+[sectorCategory, sectorETF] = getSectorInfo(sectorName)
+sectorDisplay = showSectorName ? sectorCategory + " (" + sectorETF + ")" : sectorETF
+
+// RS Rating calculation (simplified IBD-style)
+f_rs_rating() =>
+    n63 = bar_index < 63 ? bar_index : 63
+    n126 = bar_index < 126 ? bar_index : 126
+    n189 = bar_index < 189 ? bar_index : 189
+    n252 = bar_index < 252 ? bar_index : 252
+
+    closeDaRs = request.security(syminfo.tickerid, 'D', close)
+    spxClose = request.security('SP:SPX', 'D', close)
+
+    perf63 = closeDaRs / nz(closeDaRs[n63], closeDaRs)
+    perf126 = closeDaRs / nz(closeDaRs[n126], closeDaRs)
+    perf189 = closeDaRs / nz(closeDaRs[n189], closeDaRs)
+    perf252 = closeDaRs / nz(closeDaRs[n252], closeDaRs)
+
+    spx63 = spxClose / nz(spxClose[n63], spxClose)
+    spx126 = spxClose / nz(spxClose[n126], spxClose)
+    spx189 = spxClose / nz(spxClose[n189], spxClose)
+    spx252 = spxClose / nz(spxClose[n252], spxClose)
+
+    rsStock = 0.4 * perf63 + 0.2 * perf126 + 0.2 * perf189 + 0.2 * perf252
+    rsRef = 0.4 * spx63 + 0.2 * spx126 + 0.2 * spx189 + 0.2 * spx252
+
+    rsScore = (rsStock / rsRef) * 100
+    rsRating = math.min(99, math.max(1, (rsScore - 70) * 3))
+    rsRating
+
+rsRating = f_rs_rating()
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ ATR EXTENSION COLOR ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+getExtColor(val) =>
+    result = col_normal
+    if val >= profitThreshold
+        result := col_profit
+    else if val >= dangerThreshold
+        result := col_danger
+    else if val >= warnThreshold
+        result := col_warning
+    result
+
+extColor = getExtColor(atrMultiple)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ CHART PLOTS ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+// Extension dots (daily only - thresholds calibrated for daily charts)
+extCond = showExtDots and isDaily and atrMultiple >= warnThreshold
+plotshape(extCond and dotSize == "Auto", title="Ext Auto", style=shape.circle, location=location.abovebar, color=extColor, size=size.auto)
+plotshape(extCond and dotSize == "Tiny", title="Ext Tiny", style=shape.circle, location=location.abovebar, color=extColor, size=size.tiny)
+plotshape(extCond and dotSize == "Small", title="Ext Small", style=shape.circle, location=location.abovebar, color=extColor, size=size.small)
+plotshape(extCond and dotSize == "Normal", title="Ext Normal", style=shape.circle, location=location.abovebar, color=extColor, size=size.normal)
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ TABLE HELPERS ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+getTablePos(pos) =>
+    result = position.top_right
+    if pos == "Top Left"
+        result := position.top_left
+    else if pos == "Top Right"
+        result := position.top_right
+    else if pos == "Bottom Left"
+        result := position.bottom_left
+    else if pos == "Bottom Right"
+        result := position.bottom_right
+    result
+
+getTableSize(sz) =>
+    result = size.small
+    if sz == "Tiny"
+        result := size.tiny
+    else if sz == "Small"
+        result := size.small
+    else if sz == "Normal"
+        result := size.normal
+    else if sz == "Large"
+        result := size.large
+    result
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ BUILD TABLE WITH ORDERING ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+var table t = table.new(getTablePos(posTable), 2, 30, bgcolor=bg_col)
+
+if showTable and barstate.islast
+    row = 0
+
+    if show_empty_top
+        table.cell(t, 0, row, "", text_size=getTableSize(tbl_size))
+        table.cell(t, 1, row, "", text_size=getTableSize(tbl_size))
+        row += 1
+
+    // Loop through order 1-25 and display fields in order
+    for orderNum = 1 to 25
+        // ATR Multiple (daily only - thresholds calibrated for daily)
+        if ord_atrMult == orderNum and isDaily
+            table.cell(t, 0, row, "ATR x", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(atrMultiple, "#.##") + "x", text_color=extColor, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // LoD Distance (daily only)
+        if ord_lodDist == orderNum and isDaily
+            lodCol = lodDist > 60 ? col_warning : val_col
+            table.cell(t, 0, row, "LoD %", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(lodDist, "#") + "%", text_color=lodCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // LoD Price (daily only)
+        if ord_lodPrice == orderNum and isDaily
+            table.cell(t, 0, row, "LoD $", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(lodPrice, "#.##"), text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Relative Volume
+        if ord_relVol == orderNum
+            rvolCol = relVol >= 150 ? col_warning : val_col
+            table.cell(t, 0, row, "Rel. Vol", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(relVol, "#") + "%", text_color=rvolCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // RS Rating
+        if ord_rsRating == orderNum
+            rsCol = rsRating >= 80 ? col_warning : rsRating <= 30 ? col_danger : val_col
+            table.cell(t, 0, row, "RS Rating", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(rsRating, "#"), text_color=rsCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Stage 2 Check
+        if ord_stage2 == orderNum
+            stage2Col = isStage2 ? color.lime : col_danger
+            stage2Text = isStage2 ? "Yes" : "No"
+            table.cell(t, 0, row, "Stage 2", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, stage2Text, text_color=stage2Col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // ADR% (daily only - Average Day Range)
+        if ord_adrp == orderNum and isDaily
+            table.cell(t, 0, row, "ADR %", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(adrPct, "#.##") + "%", text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // ATR% (daily only)
+        if ord_atrPct == orderNum and isDaily
+            table.cell(t, 0, row, "ATR %", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(atrPct, "#.##") + "%", text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // ATR $ (daily only)
+        if ord_atr == orderNum and isDaily
+            table.cell(t, 0, row, "ATR $", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(atrValue, "#.##"), text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Off 52W High
+        if ord_distHigh == orderNum
+            dhCol = distFromHigh > -10 ? col_warning : val_col
+            table.cell(t, 0, row, "Off 52W Hi", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(distFromHigh, "#.#") + "%", text_color=dhCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Off 52W Low
+        if ord_distLow == orderNum
+            table.cell(t, 0, row, "Off 52W Lo", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, "+" + str.tostring(distFromLow, "#.#") + "%", text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Avg $ Vol
+        if ord_avgDolVol == orderNum
+            table.cell(t, 0, row, "Avg $ Vol", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, "$" + str.tostring(advDolDaDisp, "#.##") + uVDol, text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Avg Vol
+        if ord_avgVol == orderNum
+            table.cell(t, 0, row, "Avg Vol", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(avgDaVolDisp, "#.##") + uV, text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // U/D Ratio
+        if ord_udRatio == orderNum
+            udCol = udRatio >= 1.5 ? col_warning : udRatio <= 0.7 ? col_danger : val_col
+            table.cell(t, 0, row, "U/D Ratio", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(udRatio, "#.#"), text_color=udCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Market Cap (stocks only - ETFs use AUM)
+        if ord_mktCap == orderNum and not isETF
+            table.cell(t, 0, row, "Market Cap", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(MCapDisp, "#.##") + uM, text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Float % (stocks only)
+        if ord_floatPct == orderNum and not isETF
+            table.cell(t, 0, row, "Float %", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(floatPer, "#.#") + "%", text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            row += 1
+
+        // Sector (stocks only)
+        if ord_sectorETF == orderNum and not isETF
+            table.cell(t, 0, row, sectorDisplay, text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, "", text_size=getTableSize(tbl_size))
+            table.merge_cells(t, 0, row, 1, row)
+            row += 1
+
+        // Industry (stocks only)
+        if ord_industry == orderNum and not isETF
+            table.cell(t, 0, row, industryName, text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, "", text_size=getTableSize(tbl_size))
+            table.merge_cells(t, 0, row, 1, row)
+            row += 1
+
+    if show_empty_bot
+        table.cell(t, 0, row, "", text_size=getTableSize(tbl_size))
+        table.cell(t, 1, row, "", text_size=getTableSize(tbl_size))
+        row += 1
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ░░░ ALERTS ░░░
+// ══════════════════════════════════════════════════════════════════════════════
+alertcondition(atrMultiple >= profitThreshold, title="Take Profit Zone", message="{{ticker}} extended - take profit zone")
+alertcondition(atrMultiple >= dangerThreshold, title="Danger Zone", message="{{ticker}} extended - danger zone")
+alertcondition(atrMultiple >= warnThreshold, title="Warning Zone", message="{{ticker}} getting extended")
+alertcondition(ta.crossover(close, ma), title="Crossed Above MA", message="{{ticker}} crossed above MA")
+alertcondition(ta.crossunder(close, ma), title="Crossed Below MA", message="{{ticker}} crossed below MA")
+alertcondition(relVol >= 150, title="High Rel Volume", message="{{ticker}} high relative volume")
