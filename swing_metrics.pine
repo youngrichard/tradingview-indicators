@@ -464,7 +464,7 @@ if showTable and barstate.islast
 
         // RS Rating
         if ord_rsRating == orderNum
-            rsCol = rsRating >= 80 ? col_warning : rsRating <= 30 ? col_danger : val_col
+            rsCol = rsRating > 90 ? col_warning : txt_col
             table.cell(t, 0, row, "RS Rating", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             table.cell(t, 1, row, str.tostring(rsRating, "#"), text_color=rsCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
@@ -480,7 +480,8 @@ if showTable and barstate.islast
         // ADR% (daily only - Average Day Range)
         if ord_adrp == orderNum and isDaily
             table.cell(t, 0, row, "ADR %", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, str.tostring(adrPct, "#.##") + "%", text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            adrPctCol = adrPct > 4 ? col_warning : txt_col
+            table.cell(t, 1, row, str.tostring(adrPct, "#.##") + "%", text_color=adrPctCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // ATR% (daily only)
@@ -493,37 +494,36 @@ if showTable and barstate.islast
         // ATR $ (daily only)
         if ord_atr == orderNum and isDaily
             table.cell(t, 0, row, "ATR $", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, str.tostring(atrValue, "#.##"), text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(atrValue, "#.##"), text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // Off 52W High
         if ord_distHigh == orderNum
-            dhCol = distFromHigh > -10 ? col_warning : val_col
             table.cell(t, 0, row, "Off 52W Hi", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, str.tostring(distFromHigh, "#.#") + "%", text_color=dhCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(distFromHigh, "#.#") + "%", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // Off 52W Low
         if ord_distLow == orderNum
             table.cell(t, 0, row, "Off 52W Lo", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, "+" + str.tostring(distFromLow, "#.#") + "%", text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, "+" + str.tostring(distFromLow, "#.#") + "%", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // Avg $ Vol
         if ord_avgDolVol == orderNum
             table.cell(t, 0, row, "Avg $ Vol", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, "$" + str.tostring(advDolDaDisp, "#.##") + uVDol, text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, "$" + str.tostring(advDolDaDisp, "#.##") + uVDol, text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // Avg Vol
         if ord_avgVol == orderNum
             table.cell(t, 0, row, "Avg Vol", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, str.tostring(avgDaVolDisp, "#.##") + uV, text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(avgDaVolDisp, "#.##") + uV, text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // U/D Ratio
         if ord_udRatio == orderNum
-            udCol = udRatio >= 1.5 ? col_warning : udRatio <= 0.7 ? col_danger : val_col
+            udCol = txt_col
             table.cell(t, 0, row, "U/D Ratio", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             table.cell(t, 1, row, str.tostring(udRatio, "#.#"), text_color=udCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
@@ -531,13 +531,13 @@ if showTable and barstate.islast
         // Market Cap (stocks only - ETFs use AUM)
         if ord_mktCap == orderNum and not isETF
             table.cell(t, 0, row, "Market Cap", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, str.tostring(MCapDisp, "#.##") + uM, text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(MCapDisp, "#.##") + uM, text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // Float % (stocks only)
         if ord_floatPct == orderNum and not isETF
             table.cell(t, 0, row, "Float %", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, str.tostring(floatPer, "#.#") + "%", text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(floatPer, "#.#") + "%", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // Sector (stocks only)
