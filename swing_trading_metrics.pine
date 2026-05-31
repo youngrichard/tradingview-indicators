@@ -444,7 +444,7 @@ if showTable and barstate.islast
 
         // LoD Distance (daily only)
         if ord_lodDist == orderNum and isDaily
-            lodCol = lodDist > 60 ? col_warning : val_col
+            lodCol = lodDist > 60 ? col_warning : txt_col
             table.cell(t, 0, row, "LoD %", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             table.cell(t, 1, row, str.tostring(lodDist, "#") + "%", text_color=lodCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
@@ -452,12 +452,12 @@ if showTable and barstate.islast
         // LoD Price (daily only)
         if ord_lodPrice == orderNum and isDaily
             table.cell(t, 0, row, "LoD $", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, str.tostring(lodPrice, "#.##"), text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(lodPrice, "#.##"), text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // Relative Volume
         if ord_relVol == orderNum
-            rvolCol = relVol >= 150 ? col_warning : val_col
+            rvolCol = relVol > 100 ? col_warning : txt_col
             table.cell(t, 0, row, "Rel. Vol", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             table.cell(t, 1, row, str.tostring(relVol, "#") + "%", text_color=rvolCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
@@ -485,8 +485,9 @@ if showTable and barstate.islast
 
         // ATR% (daily only)
         if ord_atrPct == orderNum and isDaily
+            atrPctCol = atrPct > 4 ? col_warning : txt_col
             table.cell(t, 0, row, "ATR %", text_color=txt_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
-            table.cell(t, 1, row, str.tostring(atrPct, "#.##") + "%", text_color=val_col, text_size=getTableSize(tbl_size), text_halign=text.align_left)
+            table.cell(t, 1, row, str.tostring(atrPct, "#.##") + "%", text_color=atrPctCol, text_size=getTableSize(tbl_size), text_halign=text.align_left)
             row += 1
 
         // ATR $ (daily only)
