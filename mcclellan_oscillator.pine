@@ -1,0 +1,55 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+//
+// Simplified McClellan Oscillator
+// Based on the LazyBear, and danarm scripts.
+//
+// Difference of 19-day and 39-day EMA of Ratio-Adjusted Net Advances
+// (the StockCharts standard), summed across all US exchanges.
+
+//@version=6
+indicator(title='McClellan Oscillator',overlay=false)
+
+// ── Inputs ──────────────────────────────────────────────────────────────────
+grpZone = "Levels & Zones"
+ext = input.int(100, 'Extreme level (±)', minval=10, group=grpZone,
+     tooltip='Dotted lines at +level and -level marking an unusually strong breadth thrust.')
+showBands = input.bool(false, 'Shade zones (area fill)', group=grpZone)
+scaleTop  = input.int(150,  'Scale top', group=grpZone,
+     tooltip='Sets the top of the pane and the top of the shaded upper zone. If the oscillator spikes past this (rare), the histogram clips here.')
+scaleBot  = input.int(-150, 'Scale bottom', group=grpZone)
+
+grpCol = "Colors"
+posCol  = input.color(color.new(#00C805, 0),  'Above zero',      group=grpCol)
+negCol  = input.color(color.new(#FF5C50, 0),  'Below zero',      group=grpCol)
+lineCol = input.color(color.new(color.gray, 40), 'Reference lines', group=grpCol)
+
+// ── Calculation (fixed: ratio-adjusted, all exchanges, daily) ───────────────
+gaps = barmerge.gaps_off
+adv = nz(request.security("ADVN.NY", 'D', close, gaps=gaps)) + nz(request.security("ADVN.NQ", 'D', close, gaps=gaps)) + nz(request.security("ADVN.US", 'D', close, gaps=gaps)) + nz(request.security("ADVN.DJ", 'D', close, gaps=gaps)) + nz(request.security("ADVN.AX", 'D', close, gaps=gaps)) + nz(request.security("ADVN.AM", 'D', close, gaps=gaps))
+dec = nz(request.security("DECL.NY", 'D', close, gaps=gaps)) + nz(request.security("DECL.NQ", 'D', close, gaps=gaps)) + nz(request.security("DECL.US", 'D', close, gaps=gaps)) + nz(request.security("DECL.DJ", 'D', close, gaps=gaps)) + nz(request.security("DECL.AX", 'D', close, gaps=gaps)) + nz(request.security("DECL.AM", 'D', close, gaps=gaps))
+
+rana = 1000 * (adv - dec) / (adv + dec)
+mo = ta.ema(rana, 19) - ta.ema(rana, 39)
+
+// ── Plot: histogram, green above zero / orange below ────────────────────────
+plot(mo, 'McClellan', style=plot.style_histogram, color=(mo >= 0 ? posCol : negCol))
+
+// ── Reference lines (driven only by the input; not editable in Style) ───────
+obLine   = hline(ext,  'Upper extreme', color=lineCol, linestyle=hline.style_dotted, editable=false)
+zeroLine = hline(0,    'Zero line',     color=lineCol, linestyle=hline.style_dotted, editable=false)
+osLine   = hline(-ext, 'Lower extreme', color=lineCol, linestyle=hline.style_dotted, editable=false)
+
+// Scale bounds — set the pane's top/bottom and anchor the shaded zones.
+// Fully transparent: invisible, but still anchor the price scale (unlike
+// display.none, which would drop them from the scale too).
+topLine = hline(scaleTop, 'Scale top',    color=color.new(color.gray, 100), editable=false)
+botLine = hline(scaleBot, 'Scale bottom', color=color.new(color.gray, 100), editable=false)
+fill(obLine, topLine, color=showBands ? color.new(negCol, 88) : na, title='Upper extreme zone')
+fill(osLine, botLine, color=showBands ? color.new(posCol, 88) : na, title='Lower extreme zone')
+
+// ── Signals: thrust rolling over from an extreme (actionable) ─────
+short = mo >= ext  and mo < mo[1]
+long  = mo <= -ext and mo > mo[1]
+alertcondition(long  and not long[1],  'McC long',  'McClellan turning up from a lower extreme')
+alertcondition(short and not short[1], 'McC short', 'McClellan rolling over from an upper extreme')
