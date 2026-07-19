@@ -1,0 +1,48 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+//
+// Plots MMFI (% of stocks above their 50-day MA) and an optional fast MMTW (20-day),
+// with custom overbought/oversold zones. Read the value as a percent (0-100).
+
+//@version=6
+indicator(title='Breadth: % of Stocks Above MA', shorttitle='% > MA', overlay=false)
+
+// ── Inputs ────────────────────────────────────────────────────────────────
+grpSym = "Symbols"
+symMMFI = input.symbol('MMFI', 'Slow participation', group=grpSym,
+     tooltip='Default MMFI = % of stocks above their 50-day MA.')
+showMMTW = input.bool(true, 'Show fast participation', group=grpSym)
+symMMTW  = input.symbol('MMTW', 'Fast participation', group=grpSym,
+     tooltip='Default MMTW = % of stocks above their 20-day MA.')
+
+// Overbought & Oversold levels/zones
+grpZone = "Levels & Colors"
+obLevel  = input.int(80, 'Overbought', minval=50, maxval=100, group=grpZone, inline='ob')
+obCol    = input.color(color.new(#E0733A, 50), '', group=grpZone, inline='ob')
+osLevel  = input.int(20, 'Oversold', minval=0, maxval=50, group=grpZone, inline='os')
+osCol    = input.color(color.new(#7EC13D, 50), '', group=grpZone, inline='os')
+midLevel = input.int(50, 'Midline', minval=0, maxval=100, group=grpZone, inline='mid')
+midCol   = input.color(color.new(color.gray, 50), '', group=grpZone, inline='mid')
+showBands = input.bool(false, 'Shade zones (area fill)', group=grpZone)
+
+// Line colors
+grpLine = "Lines"
+mmfiCol = input.color(color.new(#F5E14E, 0), 'Slow line', group=grpLine)
+mmtwCol = input.color(color.new(#4FE6E6, 0), 'Fast line', group=grpLine)
+
+// ── Data
+mmfi = request.security(symMMFI, 'D', close)
+mmtw = request.security(symMMTW, 'D', close)
+
+// ── Plots ───────────────────────────────────────────────────────────────────
+plot(mmfi, 'Slow participation', color=mmfiCol, linewidth=1)
+plot(showMMTW ? mmtw : na, 'Fast participation', color=mmtwCol, linewidth=1)
+
+// ── Lines + shaded zones ─────────────────────────────────────────────────
+obLine   = hline(obLevel, 'Overbought', color=obCol, linestyle=hline.style_dotted)
+midLine  = hline(midLevel, 'Midline', color=midCol, linestyle=hline.style_dotted)
+osLine   = hline(osLevel, 'Oversold', color=osCol, linestyle=hline.style_dotted)
+scaleTop = hline(100, 'Scale top (100%)', color=color.new(color.gray, 90))
+scaleBot = hline(0, 'Scale bottom (0%)', color=color.new(color.gray, 90))
+fill(obLine, scaleTop, color=showBands ? color.new(obCol, 88) : na, title='Overbought band')
+fill(osLine, scaleBot, color=showBands ? color.new(osCol, 88) : na, title='Oversold band')
